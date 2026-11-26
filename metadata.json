@@ -1,0 +1,6 @@
+{
+  "name": "مصروفي - Masroufy",
+  "description": "تطبيق شخصي ذكي لإدارة المصاريف والميزانية والأظرف والمدخرات بدون إنترنت",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
