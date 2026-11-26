@@ -15,23 +15,46 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Clean old files & Extract ZIP safely
+      - name: Extract ZIP & Prepare Web Project
         run: |
-          rm -rf app android gradle gradlew gradlew.bat build.gradle* settings.gradle* gradle.properties dist node_modules extracted
+          rm -rf app android gradle gradlew gradlew.bat build.gradle* settings.gradle* gradle.properties dist build www node_modules extracted
           python3 -c '
           import zipfile, glob, os, shutil
+
           zips = glob.glob("*.zip")
           assert zips, "No ZIP file found!"
+          target_zip = zips[0]
+          print("Extracting:", target_zip)
+
           os.makedirs("extracted", exist_ok=True)
-          with zipfile.ZipFile(zips[0], "r") as z:
+          with zipfile.ZipFile(target_zip, "r") as z:
+              print("ZIP contents:", z.namelist()[:15])
               z.extractall("extracted")
-          items = os.listdir("extracted")
-          src = os.path.join("extracted", items[0]) if len(items) == 1 and os.path.isdir(os.path.join("extracted", items[0])) else "extracted"
-          for item in os.listdir(src):
-              dest = os.path.join(".", item)
-              if os.path.exists(dest):
-                  shutil.rmtree(dest) if os.path.isdir(dest) else os.remove(dest)
-              shutil.move(os.path.join(src, item), dest)
+
+          pkg_dir = None
+          for root, dirs, files in os.walk("extracted"):
+              if "package.json" in files and "node_modules" not in root:
+                  pkg_dir = root
+                  break
+
+          if pkg_dir:
+              print("Found Node/Vite project at:", pkg_dir)
+              for item in os.listdir(pkg_dir):
+                  if item == ".github":
+                      continue
+                  dest = os.path.join(".", item)
+                  if os.path.exists(dest):
+                      shutil.rmtree(dest) if os.path.isdir(dest) else os.remove(dest)
+                  shutil.move(os.path.join(pkg_dir, item), dest)
+          else:
+              html_dir = None
+              for root, dirs, files in os.walk("extracted"):
+                  if "index.html" in files:
+                      html_dir = root
+                      break
+              assert html_dir, "Neither package.json nor index.html found inside ZIP!"
+              print("Found static web project at:", html_dir)
+              shutil.copytree(html_dir, "www")
           '
           rm -rf extracted
 
@@ -48,17 +71,24 @@ jobs:
 
       - name: Build Web App & Wrap with Capacitor Android
         run: |
-          npm install --legacy-peer-deps
-          npm run build
+          if [ -f "package.json" ]; then
+            npm install --legacy-peer-deps
+            npm run build
+            WEB_DIR="dist"
+            if [ ! -d "dist" ] && [ -d "build" ]; then WEB_DIR="build"; fi
+          else
+            npm init -y
+            WEB_DIR="www"
+          fi
           npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 --legacy-peer-deps
-          npx cap init "Masroufy" "com.masroufy.app" --web-dir=dist
+          npx cap init "Masroufy" "com.masroufy.app" --web-dir="$WEB_DIR"
           npx cap add android
           python3 -c '
           p = "android/app/src/main/AndroidManifest.xml"
           s = open(p).read()
-          perm = "<uses-permission android:name=\"android.permission.RECORD_AUDIO\" />\n    "
+          perms = "<uses-permission android:name=\"android.permission.RECORD_AUDIO\" />\n    <uses-permission android:name=\"android.permission.MODIFY_AUDIO_SETTINGS\" />\n    "
           if "RECORD_AUDIO" not in s:
-              s = s.replace("<application", perm + "<application", 1)
+              s = s.replace("<application", perms + "<application", 1)
               open(p, "w").write(s)
           '
 
@@ -73,4 +103,3 @@ jobs:
         with:
           name: Masroufy-APK
           path: android/app/build/outputs/apk/debug/app-debug.apk
-          
